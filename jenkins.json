@@ -11,8 +11,8 @@
     "InstanceType" : {
       "Description" : "EC2 instance type",
       "Type" : "String",
-      "Default" : "m1.small",
-      "AllowedValues" : [ "t1.micro","m1.small","m1.medium","m1.large","m1.xlarge","m2.xlarge","m2.2xlarge","m2.4xlarge","m3.xlarge","m3.2xlarge","c1.medium","c1.xlarge","cc1.4xlarge","cc2.8xlarge","cg1.4xlarge"],
+      "Default" : "m3.medium",
+      "AllowedValues" : [ "t1.micro","m1.small","m3.medium","m1.medium","m1.large","m1.xlarge","m2.xlarge","m2.2xlarge","m2.4xlarge","m3.xlarge","m3.2xlarge","c1.medium","c1.xlarge","cc1.4xlarge","cc2.8xlarge","cg1.4xlarge"],
       "ConstraintDescription" : "must be a valid EC2 instance type."
     },
     "KeyName" : {
@@ -20,9 +20,9 @@
       "Type" : "String"
     },
     "ElbAccessLogs" : {
-      "Description" : "Enable elb access logging  (true|false)",
+      "Description" : "Enable elb access logging (use 'true' to enable)",
       "Type": "String",
-      "Default": "true"
+      "Default": "false"
     },
     "ElbS3BucketPrefix" : {
       "Description" : "Prefix on S3 bucket name to store elb logs",
@@ -37,12 +37,7 @@
     "ElbEmitInterval" : {
       "Description" : "Elb logs emit interval",
       "Type": "String",
-      "Default": "60"
-    },
-    "ElbEmitInterval" : {
-      "Description" : "Elb logs emit interval",
-      "Type": "String",
-      "Default": "60"
+      "Default": ""
     },
     "DnsPrefix" : {
       "Description" : "Prefix for Jenkins' DNS record (<prefix>.<zone>)",
@@ -104,6 +99,7 @@
   },
 
   "Conditions" : {
+    "ElbLogsEnable" : {"Fn::Equals" : [{ "Fn::Join" : ["", [ {"Ref" : "ElbAccessLogs"}] ]}, "false"]},
     "UseSsl" : {"Fn::Equals" : [{ "Fn::Join" : ["", [ {"Ref" : "ServerSslCertificate"}] ]}, ""]},
     "UsePrivateRegistry" : {"Fn::And": [
       {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "S3SecretBucket"}, ""]}]},
@@ -126,15 +122,15 @@
             "Statement": [{
               "Effect"   : "Allow",
               "Action"   : "s3:*",
-              "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3Bucket"} , "/" , {"Ref" : "S3Bucket"} , "/*"]]},
-              "Fn::If" : [
+              "Resource" : [ { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3Bucket"} , "/" , {"Ref" : "S3Bucket"} , "/*"]]},
+              { "Fn::If" : [
                 "UsePrivateRegistry",
                   {
-                    "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3SecretBucket"} , "/" , {"Ref" : "S3SecretPrefix"} , "/*"]]}
+                    "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3SecretBucket"} , "/" , {"Ref" : "S3SecretPrefix"} , "/*"]]
                   },
                   {
                     "Ref" : "AWS::NoValue"
-                  } ]
+                  } ] } ]
             }]
           }
         },
@@ -174,6 +170,14 @@
     "LaunchConfig" : {
       "Type" : "AWS::AutoScaling::LaunchConfiguration",
       "Metadata" : {
+        "AWS::CloudFormation::Authentication" : {
+          "S3AccessCreds" : {
+            "type" : "S3",
+            "accessKeyId" : { "Ref" : "HostKeys" },
+            "secretKey" : {"Fn::GetAtt": ["HostKeys", "SecretAccessKey"]},
+            "buckets" : [ { "Ref" : "S3Bucket" }, { "Ref" : "S3SecretBucket" } ]
+          }
+        },
         "AWS::CloudFormation::Init" : {
           "config": {
             "packages" : {
@@ -185,6 +189,12 @@
               }
             },
             "files" : {
+              "/tmp/runit-service" : {
+                "content" : "IyEvYmluL2Jhc2ggLWUKCiMgSGVscGVyIHNjcmlwdCBmb3IgbWFuYWdpbmcgcnVuaXQgc2VydmljZXMKCmZ1bmN0aW9uIGNyZWF0ZSgpIHsKCVVTQUdFPSIkMCBjcmVhdGUgPHNlcnZpY2VfbmFtZT4gPGNtZD4gWzxvcHRpb25zPl0iCglzZXJ2aWNlX25hbWU9JDEKCWNtZD0ke0A6Mn0KCgk6ICR7c2VydmljZV9uYW1lOj8ibXVzdCBiZSBwYXNzZWQuICRVU0FHRSJ9Cgk6ICR7Y21kOj8ibXVzdCBiZSBwYXNzZWQuICRVU0FHRSJ9CgoJc3ZkaXI9L2V0Yy9zdi8ke3NlcnZpY2VfbmFtZX0KCglzdWRvIG1rZGlyIC1wICR7c3ZkaXJ9L2VudgoJY2F0IDw8LSBFT0YgfCBzdWRvIHRlZSAke3N2ZGlyfS9ydW4gPiAvZGV2L251bGwKCQkjIS9iaW4vc2gKCQlleGVjIDI+JjEKCQlleGVjIGNocHN0IC1lICR7c3ZkaXJ9L2VudiAke2NtZH0gJHtvcHRzfQoJRU9GCglzdWRvIGNobW9kIDc3NCAke3N2ZGlyfS9ydW4KCglzdWRvIG1rZGlyIC1wIC92YXIvbG9nLyR7c2VydmljZV9uYW1lfSAke3N2ZGlyfS9sb2cKCWNhdCA8PC0gRU9GIHwgc3VkbyB0ZWUgJHtzdmRpcn0vbG9nL3J1biA+IC9kZXYvbnVsbAoJCSMhL2Jpbi9zaAoJCWV4ZWMgY2hwc3Qgc3Zsb2dkIC10dCAvdmFyL2xvZy8ke3NlcnZpY2VfbmFtZX0KCUVPRgoJc3VkbyBjaG1vZCA3NzQgJHtzdmRpcn0vbG9nL3J1bgoKCXN1ZG8gbWtkaXIgLXAgL2V0Yy9zZXJ2aWNlCgllY2hvICIke3NlcnZpY2VfbmFtZX0gY3JlYXRlZCIKfQoKZnVuY3Rpb24gZW5hYmxlKCkgewoJVVNBR0U9IiQwIGVuYWJsZSA8c2VydmljZV9uYW1lPiIKCXNlcnZpY2VfbmFtZT0kMQoKCTogJHtzZXJ2aWNlX25hbWU6PyJtdXN0IGJlIHBhc3NlZC4gJFVTQUdFIn0KCQoJc3VkbyBsbiAtZnMgL2V0Yy9zdi8ke3NlcnZpY2VfbmFtZX0gL2V0Yy9zZXJ2aWNlLwoJc3VkbyBsbiAtZnMgL3Vzci9iaW4vc3YgL2V0Yy9pbml0LmQvJHtzZXJ2aWNlX25hbWV9CgoJZWNobyAiJHtzZXJ2aWNlX25hbWV9IGVuYWJsZWQiCn0KCmZ1bmN0aW9uIGRpc2FibGUoKSB7CglVU0FHRT0iJDAgZGlzYWJsZSA8c2VydmljZV9uYW1lPiIKCXNlcnZpY2VfbmFtZT0kMQoKCTogJHtzZXJ2aWNlX25hbWU6PyJtdXN0IGJlIHBhc3NlZC4gJFVTQUdFIn0KCglzdWRvIHJtIC1mIC9ldGMvc2VydmljZS8ke3NlcnZpY2VfbmFtZX0KCXN1ZG8gcm0gLWYgL2V0Yy9pbml0LmQvJHtzZXJ2aWNlX25hbWV9CgoJZWNobyAiJHtzZXJ2aWNlX25hbWV9IGRpc2FibGVkIgp9CgpjYXNlICIkMSIgaW4KCWNyZWF0ZSkKCQlzaGlmdAoJCWNyZWF0ZSAkQAoJCTs7CgoJZW5hYmxlKQoJCXNoaWZ0CgkJZW5hYmxlICRACgkJOzsKCglkaXNhYmxlKQoJCXNoaWZ0CgkJZGlzYWJsZSAkQAoJCTs7CgoJKikKCQllY2hvICJVc2FnZTogJDAge2NyZWF0ZXxlbmFibGV8ZGlzYWJsZX0gPHNlcnZpY2VfbmFtZT4gWzxhcmdzPl0iCgkJZXhpdCAxCmVzYWM=",
+                "mode"    : "000600",
+                "owner"   : "root",
+                "group"   : "root"
+              },
               "/etc/aws.conf" : {
                 "content" : { "Fn::Join" : ["\n", [
                   "[default]",
@@ -199,20 +209,18 @@
                 "owner"   : "root",
                 "group"   : "root"
               },
-              "Fn::If" : [
+              "/root/.dockercfg" : { "Fn::If" : [
                 "UsePrivateRegistry",
                   {
-                    "/root/.dockercfg" : {
-                      "source" : { "Fn::Join" : ["", ["https://s3.amazonaws.com/", { "Ref" : "S3SecretBucket" }, "/", { "Ref" : "S3SecretPrefix" }, "/", { "Ref" : "RegistryAuthFile" }]] },
+                      "source" : { "Fn::Join" : ["", ["https://", { "Ref" : "S3SecretBucket" }, ".s3.amazonaws.com/", { "Ref" : "S3SecretPrefix" }, "/", { "Ref" : "RegistryAuthFile" }]] },
                       "mode"    : "000600",
                       "owner"   : "root",
                       "group"   : "root"
-                    }
                   },
                   {
                     "Ref" : "AWS::NoValue"
                   } 
-              ],
+              ] } ,
               "/usr/local/bin/jenkins-restore" : {
                 "content" : { "Fn::Join" : ["\n", [
                   "#!/bin/bash -e",
@@ -330,6 +338,9 @@
           "  exit 1\n",
           "}\n",
 
+          "apt-get update && apt-get -y install python-setuptools\n",
+          "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n",
+
           "cfn-init -s ", { "Ref" : "AWS::StackName" }, " -r LaunchConfig ",
           "    --access-key ",  { "Ref" : "HostKeys" },
           "    --secret-key ", {"Fn::GetAtt": ["HostKeys", "SecretAccessKey"]},
@@ -346,7 +357,9 @@
           "jenkins-restore s3://",{ "Ref": "S3Bucket" },"/",{ "Ref": "S3Prefix" }," /var/lib/jenkins || true # ignore errors\n",
 
           "# Start Jenkins\n",
-          "docker pull ", { "Ref": "DockerImage" }, "\n",
+          "sleep 1\n",
+          "HOME=/root docker pull ", { "Ref": "DockerImage" }, "\n",
+          "base64 -d /tmp/runit-service > /sbin/runit-service && chmod 755 /sbin/runit-service \n",
           "runit-service create jenkins docker run",
           "   -p 8080:8080",
           "   -v /var/lib/jenkins:/jenkins",
@@ -382,27 +395,33 @@
     "ElasticLoadBalancer" : {
       "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
       "Properties" : {
-        "AccessLoggingPolicy" : {
-          "EmitInterval" : { "Ref" : "ElbEmitInterval" },
-          "Enabled" : { "Ref" : "ElbAccessLogs" },
-          "S3BucketName" : { "Ref" : "ElbS3BucketName" },
-          "S3BucketPrefix" : { "Ref" : "ElbS3BucketPrefix" }
-        },
+        "AccessLoggingPolicy" : { "Fn::If" : [
+          "ElbLogsEnable",
+          {
+            "Enabled" : { "Ref" : "ElbAccessLogs" }
+          },
+          {
+            "EmitInterval" : { "Ref" : "ElbEmitInterval" },
+            "Enabled" : { "Ref" : "ElbAccessLogs" },
+            "S3BucketName" : { "Ref" : "ElbS3BucketName" },
+            "S3BucketPrefix" : { "Ref" : "ElbS3BucketPrefix" }
+          }
+        ] },
         "SecurityGroups": [{ "Ref": "LbSecurityGroup" }, { "Ref": "AdminSecurityGroup" }],
         "Subnets": { "Ref": "Subnets" },
         "Listeners" : [ {
           "Fn::If" : [
             "UseSsl",
               {
+                "LoadBalancerPort" : "80",
+                "InstancePort" : "8080",
+                "Protocol" : "HTTP"
+              },
+              {
                 "LoadBalancerPort" : "443",
                 "SSLCertificateId" : { "Ref" : "ServerSslCertificate" },
                 "InstancePort" : "8080",
                 "Protocol" : "HTTPS"
-              },
-              {
-                "LoadBalancerPort" : "80",
-                "InstancePort" : "8080",
-                "Protocol" : "HTTP"
               } ]
         } ],
         "HealthCheck" : {
@@ -435,10 +454,16 @@
 
   "Outputs" : {
     "DnsAddress" : {
-      "Description" : "Jenkins URL",
-      "Value" :  { "Fn::Join" : ["", [
-        "http://", { "Ref" : "DnsRecord" }
-      ]]}
+        "Description" : "Jenkins URL",
+        "Value" : { "Fn::If" : [
+          "CreateDnsEntry",
+          {
+            "Fn::Join" : ["", [
+              "http://", { "Ref" : "DnsRecord" }
+            ]]
+          },
+            "DNS disabled"
+        ] }
     }
   }
 
