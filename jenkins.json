@@ -19,6 +19,31 @@
       "Description" : "Name of an existing EC2 keypair to enable SSH access to the instances",
       "Type" : "String"
     },
+    "ElbAccessLogs" : {
+      "Description" : "Enable elb access logging  (true|false)",
+      "Type": "String",
+      "Default": "true"
+    },
+    "ElbS3BucketPrefix" : {
+      "Description" : "Prefix on S3 bucket name to store elb logs",
+      "Type": "String",
+      "Default": ""
+    },
+    "ElbS3BucketName" : {
+      "Description" : "S3 bucket name to store elb logs",
+      "Type": "String",
+      "Default": ""
+    },
+    "ElbEmitInterval" : {
+      "Description" : "Elb logs emit interval",
+      "Type": "String",
+      "Default": "60"
+    },
+    "ElbEmitInterval" : {
+      "Description" : "Elb logs emit interval",
+      "Type": "String",
+      "Default": "60"
+    },
     "DnsPrefix" : {
       "Description" : "Prefix for Jenkins' DNS record (<prefix>.<zone>)",
       "Type": "String",
@@ -28,6 +53,11 @@
       "Description" : "Route53-hosted zone to use for the DNS record (<prefix>.<zone>)",
       "Type": "String",
       "Default": "thefactory.com"
+    },
+    "ServerSslCertificate" : {
+      "Description" : "SSL certificate arn to use for ELB",
+      "Type": "String",
+      "Default": ""
     },
     "DockerImage" : {
       "Description" : "Path of the Jenkins Docker image (format: '[<registry>[:<port>]/]<repository>:<version>')",
@@ -111,6 +141,9 @@
         "AWS::CloudFormation::Init" : {
           "config": {
             "packages" : {
+              "apt" : {
+                "runit":[]
+              },
               "python" : {
                 "awscli":[]
               }
@@ -254,6 +287,7 @@
           "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
 
           "# Post-cfn work\n",
+          "curl -sSL https://get.docker.com/ubuntu/ | sudo sh \n",
           
           "# Handle case where cron doesn't detect the new /etc/cron.d file\n",
           "service cron restart\n",
@@ -299,12 +333,28 @@
     "ElasticLoadBalancer" : {
       "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
       "Properties" : {
+        "AccessLoggingPolicy" : {
+          "EmitInterval" : { "Ref" : "ElbEmitInterval" },
+          "Enabled" : { "Ref" : "ElbAccessLogs" },
+          "S3BucketName" : { "Ref" : "ElbS3BucketName" },
+          "S3BucketPrefix" : { "Ref" : "ElbS3BucketPrefix" }
+        },
         "SecurityGroups": [{ "Ref": "LbSecurityGroup" }, { "Ref": "AdminSecurityGroup" }],
         "Subnets": { "Ref": "Subnets" },
         "Listeners" : [ {
-          "LoadBalancerPort" : "80",
-          "InstancePort" : "8080",
-          "Protocol" : "HTTP"
+          "Fn::If" : [
+            "UseSsl",
+              {
+                "LoadBalancerPort" : "443",
+                "SSLCertificateId" : { "Ref" : "ServerSslCertificate" },
+                "InstancePort" : "8080",
+                "Protocol" : "HTTPS"
+              },
+              {
+                "LoadBalancerPort" : "80",
+                "InstancePort" : "8080",
+                "Protocol" : "HTTP"
+              } ]
         } ],
         "HealthCheck" : {
           "Target" : "HTTP:8080/",
@@ -318,6 +368,7 @@
 
     "DnsRecord" : {
       "Type" : "AWS::Route53::RecordSet",
+      "Condition": "CreateDnsEntry",
       "Properties" : {
         "HostedZoneName" : { "Fn::Join" : [ "", [{"Ref" : "DnsZone"}, "." ]]},
         "Comment" : "Docker Registry",
