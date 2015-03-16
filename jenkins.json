@@ -64,6 +64,21 @@
       "Type" : "String",
       "Default" : "aespinosa/jenkins"
     },
+    "RegistryAuthFile" : {
+      "Description" : "[Optional] Specify name of a file to be used as .dockercfg if accessing private registry. Retrieving from S3SecretBucket/S3SecretPrefix",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "S3SecretBucket" : {
+      "Description" : "[Optional] Existing S3 bucket with credentials",
+      "Type" : "String",
+      "Default": ""
+    },
+    "S3SecretPrefix" : {
+      "Description" : "[Optional] Prefix in secret bucket with credentials for the stack",
+      "Type" : "String",
+      "Default": ""
+    },
     "S3Bucket" : {
       "Description" : "Existing S3 bucket to use for Jenkins backups and restores",
       "Type" : "String",
@@ -88,6 +103,19 @@
     }
   },
 
+  "Conditions" : {
+    "UseSsl" : {"Fn::Equals" : [{ "Fn::Join" : ["", [ {"Ref" : "ServerSslCertificate"}] ]}, ""]},
+    "UsePrivateRegistry" : {"Fn::And": [
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "S3SecretBucket"}, ""]}]},
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "S3SecretPrefix"}, ""]}]},
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "RegistryAuthFile"}, ""]}]}
+    ]},
+    "CreateDnsEntry" : {"Fn::And": [
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "DnsPrefix"}, ""]}]},
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "DnsZone"}, ""]}]}
+    ]}
+  },
+
   "Resources" : {
     "IAMUser" : {
       "Type" : "AWS::IAM::User",
@@ -98,7 +126,15 @@
             "Statement": [{
               "Effect"   : "Allow",
               "Action"   : "s3:*",
-              "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3Bucket"} , "/*"]]}
+              "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3Bucket"} , "/" , {"Ref" : "S3Bucket"} , "/*"]]},
+              "Fn::If" : [
+                "UsePrivateRegistry",
+                  {
+                    "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "S3SecretBucket"} , "/" , {"Ref" : "S3SecretPrefix"} , "/*"]]}
+                  },
+                  {
+                    "Ref" : "AWS::NoValue"
+                  } ]
             }]
           }
         },
@@ -163,7 +199,20 @@
                 "owner"   : "root",
                 "group"   : "root"
               },
-
+              "Fn::If" : [
+                "UsePrivateRegistry",
+                  {
+                    "/root/.dockercfg" : {
+                      "source" : { "Fn::Join" : ["", ["https://s3.amazonaws.com/", { "Ref" : "S3SecretBucket" }, "/", { "Ref" : "S3SecretPrefix" }, "/", { "Ref" : "RegistryAuthFile" }]] },
+                      "mode"    : "000600",
+                      "owner"   : "root",
+                      "group"   : "root"
+                    }
+                  },
+                  {
+                    "Ref" : "AWS::NoValue"
+                  } 
+              ],
               "/usr/local/bin/jenkins-restore" : {
                 "content" : { "Fn::Join" : ["\n", [
                   "#!/bin/bash -e",
