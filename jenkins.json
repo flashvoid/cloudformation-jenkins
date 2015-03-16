@@ -4,6 +4,10 @@
   "Description" : "Launches a Jenkins server.",
 
   "Parameters" : {
+    "AMI" : {
+      "Description" : "AMI to use for ec2 instance",
+      "Type" : "String"
+    },
     "InstanceType" : {
       "Description" : "EC2 instance type",
       "Type" : "String",
@@ -51,35 +55,6 @@
     "AdminSecurityGroup" : {
       "Description" : "Existing security group that should be granted administrative access to Jenkins (e.g., 'sg-123456')",
       "Type": "String"
-    }
-  },
-
-  "Mappings" : {
-    "RegionMap" : {
-      "us-east-1" : {
-        "AMI" : "ami-f40bbe9c"
-      },
-      "us-west-1" : {
-        "AMI" : "ami-cfe2ea8a"
-      },
-      "us-west-2" : {
-        "AMI" : "ami-3fb1f20f"
-      },
-      "eu-west-1" : {
-        "AMI" : "ami-e0d27397"
-      },
-      "ap-southeast-1" : {
-        "AMI" : "ami-8a7057d8"
-      },
-      "ap-southeast-2" : {
-        "AMI" : "ami-d5c1a2ef"
-      },
-      "ap-northeast-1" : {
-        "AMI" : "ami-a7def7a6"
-      },
-      "sa-east-1" : {
-        "AMI" : "ami-070fa51a"
-      }
     }
   },
 
@@ -259,7 +234,7 @@
       },
       "Properties" : {
         "KeyName" : { "Ref" : "KeyName" },
-        "ImageId" : { "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "AMI"] },
+        "ImageId" : { "Ref" : "AMI" },
         "SecurityGroups" : [ { "Ref" : "ServerSecurityGroup" }, { "Ref": "AdminSecurityGroup" } ],
         "AssociatePublicIpAddress": "true",
         "InstanceType" : { "Ref" : "InstanceType" },
